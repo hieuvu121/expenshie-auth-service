@@ -11,8 +11,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.security.authentication.BadCredentialsException;
+
 import com.be9expensphie.auth.dto.AuthDTO;
 import com.be9expensphie.auth.dto.UserDTO;
+import com.be9expensphie.auth.exception.AccountNotActiveException;
 import com.be9expensphie.auth.service.UserService;
 
 import lombok.RequiredArgsConstructor;
@@ -41,13 +44,10 @@ public class UserController {
     @PostMapping("/auth/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody AuthDTO authDTO) {
         try {
-            if (!userService.isAccountActive(authDTO.getEmail())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                        "message", "Account is not yet active. Please activate the account first"));
-            }
-            Map<String, Object> response = userService.authenticateAndGenerateToken(authDTO);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
+            return ResponseEntity.ok(userService.authenticateAndGenerateToken(authDTO));
+        } catch (AccountNotActiveException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", e.getMessage()));
+        } catch (BadCredentialsException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", e.getMessage()));
         }
     }
