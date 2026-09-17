@@ -105,6 +105,28 @@ public class UserService {
                 .orElse(false);
     }
 
+    /**
+     * Authenticates and issues a JWT, reading the user row exactly once.
+     *
+     * This deliberately does not go through AuthenticationManager. The
+     * DaoAuthenticationProvider behind it resolves the account itself via
+     * AppUserDetailsService, which was a second identical findByEmail on top of
+     * the three this method and the controller already issued between them --
+     * four reads of one row, each in its own transaction. Verifying the hash
+     * against the entity already in hand collapses that to one.
+     *
+     * Nothing is lost by skipping the provider: it contributes the same
+     * PasswordEncoder bean used here, and AppUserDetailsService builds its
+     * UserDetails without ever setting the disabled/locked/expired flags, so
+     * the provider's account-status checks could not fail. Its unknown-user
+     * timing mitigation does not apply either -- the activation check below
+     * answers before any password work, as it always has.
+     *
+     * SecurityConfig still declares the AuthenticationManager and
+     * DaoAuthenticationProvider beans; nothing injects them any more.
+     *
+     * LoginQueryCountTest pins both the single read and the responses.
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> authenticateAndGenerateToken(AuthDTO authDTO) {
         UserEntity user = userRepository.findByEmail(authDTO.getEmail()).orElse(null);
