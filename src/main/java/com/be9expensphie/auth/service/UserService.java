@@ -122,9 +122,6 @@ public class UserService {
      * timing mitigation does not apply either -- the activation check below
      * answers before any password work, as it always has.
      *
-     * SecurityConfig still declares the AuthenticationManager and
-     * DaoAuthenticationProvider beans; nothing injects them any more.
-     *
      * LoginQueryCountTest pins both the single read and the responses.
      */
     @Transactional(readOnly = true)

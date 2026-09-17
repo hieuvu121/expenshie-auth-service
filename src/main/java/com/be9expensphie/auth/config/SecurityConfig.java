@@ -1,12 +1,7 @@
 package com.be9expensphie.auth.config;
 
-import com.be9expensphie.auth.security.AppUserDetailsService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,11 +11,15 @@ import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 @EnableWebSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final AppUserDetailsService userDetailsService;
-
+    /*
+     * Every request is permitted here because the gateway has already
+     * authenticated it: JwtAuthenticationFilter verifies the token and passes
+     * the caller down as X-User-Id. A service reached directly, bypassing the
+     * gateway, is therefore unauthenticated by design -- which is why only the
+     * gateway's port is published.
+     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -30,21 +29,22 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
-        return config.getAuthenticationManager();
-    }
-
+    /**
+     * Injected by UserService and ForgotPasswordService.
+     *
+     * The AuthenticationManager and DaoAuthenticationProvider beans that used
+     * to sit alongside this one are gone: UserService verifies the hash against
+     * the entity it has already loaded, so nothing asked the provider to
+     * resolve an account any more and it only cost a duplicate findByEmail.
+     * See UserService.authenticateAndGenerateToken.
+     *
+     * AppUserDetailsService stays a @Service despite now having no injector.
+     * It is the UserDetailsService bean that keeps Spring Boot's
+     * UserDetailsServiceAutoConfiguration backed off; without it the service
+     * would start generating an in-memory user and logging a random password.
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public DaoAuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
-        provider.setUserDetailsService(userDetailsService);
-        provider.setPasswordEncoder(passwordEncoder());
-        return provider;
     }
 }
