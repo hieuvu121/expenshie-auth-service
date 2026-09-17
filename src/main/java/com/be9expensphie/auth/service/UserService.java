@@ -9,6 +9,7 @@ import com.be9expensphie.auth.producer.EmailProducer;
 import com.be9expensphie.auth.producer.UserEventProducer;
 import com.be9expensphie.common.event.UserEvent;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -27,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -34,6 +36,7 @@ public class UserService {
     private final EmailProducer emailProducer;
     private final UserEventProducer userEventProducer;
     private final RedisTemplate<String, String> redisTemplate;
+    private static final String JWT_REVOKED_CHANNEL="jwt-revoked";
 
     @Value("${app.base-url}")
     private String baseUrl;
@@ -102,25 +105,6 @@ public class UserService {
                 .orElse(false);
     }
 
-    /**
-     * Authenticates and issues a JWT, reading the user row exactly once.
-     *
-     * This deliberately does not go through AuthenticationManager. The
-     * DaoAuthenticationProvider behind it resolves the account itself via
-     * AppUserDetailsService, which was a second identical findByEmail on top of
-     * the three this method and the controller already issued between them --
-     * four reads of one row, each in its own transaction. Verifying the hash
-     * against the entity already in hand collapses that to one.
-     *
-     * Nothing is lost by skipping the provider: it contributes the same
-     * PasswordEncoder bean used here, and AppUserDetailsService builds its
-     * UserDetails without ever setting the disabled/locked/expired flags, so
-     * the provider's account-status checks could not fail. Its unknown-user
-     * timing mitigation does not apply either -- the activation check below
-     * answers before any password work, as it always has.
-     *
-     * LoginQueryCountTest pins both the single read and the responses.
-     */
     @Transactional(readOnly = true)
     public Map<String, Object> authenticateAndGenerateToken(AuthDTO authDTO) {
         UserEntity user = userRepository.findByEmail(authDTO.getEmail()).orElse(null);
@@ -156,6 +140,27 @@ public class UserService {
 
         if (ttl > 0) {
             redisTemplate.opsForValue().set("blacklist:" + token, "true", ttl, TimeUnit.MILLISECONDS);
+
+            /*
+             * Inside the guard, and after the SET.
+             *
+             * Inside, because announcing a revocation that was never written
+             * would have the gateways drop a cached answer and immediately
+             * re-read the same "not blacklisted" from Redis -- churn for
+             * nothing. After, because a gateway that evicts and re-reads before
+             * the key exists caches the stale answer again and holds it for the
+             * full TTL, which is the ordering bug expense-service's membership
+             * consumer documents.
+             *
+             * Best-effort: a gateway that misses this still expires its entry
+             * within app.jwt.blacklist-cache-ttl-seconds, exactly as it did
+             * before pub/sub existed. A failed publish must not fail the logout.
+             */
+            try {
+                redisTemplate.convertAndSend(JWT_REVOKED_CHANNEL, token);
+            } catch (Exception e) {
+                log.warn("Could not publish revocation; gateways will expire it by TTL", e);
+            }
         }
     }
 }
