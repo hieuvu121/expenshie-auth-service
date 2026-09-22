@@ -5,8 +5,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import com.be9expensphie.auth.producer.EmailProducer;
-import com.be9expensphie.auth.producer.UserEventProducer;
+import com.be9expensphie.auth.outbox.OutboxWriter;
+import com.be9expensphie.common.event.EmailEvent;
 import com.be9expensphie.common.event.UserEvent;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -33,39 +33,46 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
-    private final EmailProducer emailProducer;
-    private final UserEventProducer userEventProducer;
+    private final OutboxWriter outbox;
     private final RedisTemplate<String, String> redisTemplate;
     private static final String JWT_REVOKED_CHANNEL="jwt-revoked";
 
     @Value("${app.base-url}")
     private String baseUrl;
 
+    /**
+     * Registers a user and records both of its events atomically with the row.
+     *
+     * Both publishes used to happen after save(), each wrapped in a catch that
+     * printed to System.err and carried on. A broker outage therefore produced
+     * a user in auth_db that household_db.user_summary never learned about --
+     * permanently, since UserEventConsumer handles only USER_REGISTERED and
+     * nothing replays. The activation email could vanish the same way, leaving
+     * an account nobody could activate.
+     *
+     * @Transactional is new here. It is what gives the outbox rows the same
+     * fate as the user row: all three commit, or none of them do.
+     */
+    @Transactional
     public UserDTO registerUser(UserDTO userDTO) {
         UserEntity newUser = toEntity(userDTO);
         newUser.setActivationToken(UUID.randomUUID().toString());
         newUser = userRepository.save(newUser);
 
         String activationLink = baseUrl + "/app/v1/activate?token=" + newUser.getActivationToken();
-        String subject = "Activate your Expensphie account";
-        String body = "Click on the following link to activate your account: " + activationLink;
-        try {
-            emailProducer.sendEmailEvent(newUser.getEmail(), subject, body, "ACTIVATION");
-        } catch (Exception e) {
-            System.err.println("Failed to publish activation email event: " + e.getMessage());
-        }
+        outbox.write("email-events", newUser.getEmail(), new EmailEvent(
+                newUser.getEmail(),
+                "Activate your Expensphie account",
+                "Click on the following link to activate your account: " + activationLink,
+                "ACTIVATION",
+                null));
 
-        try {
-            UserEvent userEvent = UserEvent.builder()
-                    .userId(newUser.getId())
-                    .email(newUser.getEmail())
-                    .fullName(newUser.getFullName())
-                    .eventType("USER_REGISTERED")
-                    .build();
-            userEventProducer.publishUserEvent(userEvent);
-        } catch (Exception e) {
-            System.err.println("Failed to publish user event: " + e.getMessage());
-        }
+        outbox.write("user-events", newUser.getEmail(), UserEvent.builder()
+                .userId(newUser.getId())
+                .email(newUser.getEmail())
+                .fullName(newUser.getFullName())
+                .eventType("USER_REGISTERED")
+                .build());
 
         return toDTO(newUser);
     }

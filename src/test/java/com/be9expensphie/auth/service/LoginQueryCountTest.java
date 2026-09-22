@@ -58,7 +58,7 @@ class LoginQueryCountTest {
         ReflectionTestUtils.setField(jwtUtil, "secret", SECRET);
 
         UserService userService = new UserService(
-                userRepository, passwordEncoder, jwtUtil, null, null, null);
+                userRepository, passwordEncoder, jwtUtil, null, null);
         ReflectionTestUtils.setField(userService, "baseUrl", "http://localhost:8080");
 
         controller = new UserController(userService);
