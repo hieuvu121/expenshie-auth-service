@@ -85,7 +85,7 @@ class LogoutRevocationTest {
         ReflectionTestUtils.setField(jwtUtil, "secret", SECRET);
 
         userService = new UserService(userRepository, new BCryptPasswordEncoder(),
-                jwtUtil, null, null, redisTemplate);
+                jwtUtil, null, redisTemplate);
     }
 
     private String loggedInToken() {
