@@ -4,6 +4,7 @@ import com.be9expensphie.auth.dto.UserDTO;
 import com.be9expensphie.auth.entity.UserEntity;
 import com.be9expensphie.auth.outbox.OutboxWriter;
 import com.be9expensphie.auth.repository.UserRepository;
+import com.be9expensphie.common.event.DomainEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,7 +42,7 @@ class RegisterOutboxTest {
     private RecordingOutbox outbox;
     private UserService userService;
 
-    private record Written(String topic, String key, Object payload) {}
+    private record Written(String topic, String key, DomainEvent payload) {}
 
     private static class RecordingOutbox extends OutboxWriter {
         final List<Written> written = new ArrayList<>();
@@ -51,7 +52,7 @@ class RegisterOutboxTest {
         }
 
         @Override
-        public void write(String topic, String aggregateId, Object event) {
+        public void write(String topic, String aggregateId, DomainEvent event) {
             written.add(new Written(topic, aggregateId, event));
         }
     }

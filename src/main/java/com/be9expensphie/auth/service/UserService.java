@@ -60,12 +60,17 @@ public class UserService {
         newUser = userRepository.save(newUser);
 
         String activationLink = baseUrl + "/app/v1/activate?token=" + newUser.getActivationToken();
-        outbox.write("email-events", newUser.getEmail(), new EmailEvent(
-                newUser.getEmail(),
-                "Activate your Expensphie account",
-                "Click on the following link to activate your account: " + activationLink,
-                "ACTIVATION",
-                null));
+        /*
+         * Builder, not the all-args constructor. EmailEvent gained an eventId
+         * field, and a positional call here would silently rebind its arguments
+         * the next time the record changes shape.
+         */
+        outbox.write("email-events", newUser.getEmail(), EmailEvent.builder()
+                .to(newUser.getEmail())
+                .subject("Activate your Expensphie account")
+                .body("Click on the following link to activate your account: " + activationLink)
+                .eventType("ACTIVATION")
+                .build());
 
         outbox.write("user-events", newUser.getEmail(), UserEvent.builder()
                 .userId(newUser.getId())
