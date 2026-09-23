@@ -95,7 +95,10 @@ class OutboxPublisherTest {
     }
 
     private static EmailEvent emailEvent() {
-        return new EmailEvent("dana@example.com", "Activate your account", "link", "ACTIVATION", null);
+        return EmailEvent.builder()
+                .to("dana@example.com").subject("Activate your account")
+                .body("link").eventType("ACTIVATION")
+                .build();
     }
 
     @Test
